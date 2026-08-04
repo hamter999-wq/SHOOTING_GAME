@@ -33,7 +33,7 @@
             object-fit: cover;
             transform: scaleX(-1); /* Mirror */
             z-index: 1;
-            opacity: 0.6; /* ทำให้กล้องมืดลงนิดหน่อยเพื่อให้กราฟิกเกมเด่นขึ้น */
+            opacity: 0.6;
         }
 
         #output_canvas {
@@ -132,6 +132,27 @@
 
         #btn-back:hover { background: rgba(255,255,255,0.3); }
 
+        #guide-box {
+            position: absolute;
+            bottom: 110px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.72);
+            border: 1px solid rgba(239,68,68,0.6);
+            padding: 12px 26px;
+            font-size: 1.4rem;
+            letter-spacing: 1px;
+            border-radius: 6px;
+            z-index: 25;
+            opacity: 0;
+            transition: opacity 0.5s ease, transform 0.5s ease;
+            pointer-events: none;
+            text-align: center;
+            max-width: 85%;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        #guide-box.show { opacity: 1; transform: translateX(-50%) translateY(-5px); }
+
         .shake { animation: shake 0.2s cubic-bezier(.36,.07,.19,.97) both; }
         @keyframes shake {
             10%, 90% { transform: translate3d(-5px, 0, 0); }
@@ -158,6 +179,8 @@
                 </div>
             </div>
         </div>
+
+        <div id="guide-box"></div>
 
         <button id="btn-back" onclick="goToMenu()">BACK TO MENU</button>
 
@@ -222,6 +245,21 @@
         let mode2Objects = { gun: null, mag: null, slide: null };
         let mode3Objects = { targets: [], crosshairScale: 1, recoilOffset: 0, flashOpacity: 0 };
 
+        // Mode 3 FPS gun rig + FX
+        let gunFPS = { swayX: 0, swayY: 0, kick: 0 };
+        let particles = [];
+        let popups = [];
+
+        // Guide tooltip
+        let guideTimeout = null;
+        function showGuide(text, duration = 4000) {
+            const box = document.getElementById('guide-box');
+            clearTimeout(guideTimeout);
+            box.innerText = text;
+            box.classList.add('show');
+            guideTimeout = setTimeout(() => box.classList.remove('show'), duration);
+        }
+
         const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
         hands.setOptions({
             maxNumHands: 1,
@@ -244,7 +282,6 @@
                 const indexTip = handTrackingData[8];
                 const thumbTip = handTrackingData[4];
 
-                // Mirror coordinates
                 const ix = (1 - indexTip.x) * cw; const iy = indexTip.y * ch;
                 const tx = (1 - thumbTip.x) * cw; const ty = thumbTip.y * ch;
 
@@ -269,7 +306,7 @@
             if(!handTrackingData) { cursor.x = mouseX; cursor.y = mouseY; handleInput(isMouseDown); }
         });
         window.addEventListener('mousedown', e => {
-            if(e.target.tagName === 'BUTTON') return; // ปล่อยให้ปุ่ม HTML ทำงาน
+            if(e.target.tagName === 'BUTTON') return;
             isMouseDown = true;
             if(!handTrackingData) { cursor.x = mouseX; cursor.y = mouseY; handleInput(true); }
         });
@@ -279,7 +316,6 @@
         });
 
         function handleInput(isActionActive) {
-            // Track rising edge for shooting/clicking
             cursor.justPinched = isActionActive && !cursor.isPinching;
             cursor.isPinching = isActionActive;
 
@@ -303,7 +339,6 @@
             chamberText.innerText = weapon.isChambered ? "YES" : "NO";
             chamberText.className = weapon.isChambered ? "font-bold text-green-400" : "font-bold text-red-400";
 
-            // Disable buttons logic
             document.getElementById('btn-mode2').disabled = (weapon.ammo === 0 && !weapon.isMagInserted);
             document.getElementById('btn-mode3').disabled = !weapon.isChambered;
         }
@@ -326,6 +361,8 @@
             document.getElementById('screen-menu').classList.add('active');
             document.getElementById('hud').style.display = 'none';
             document.getElementById('btn-back').style.display = 'none';
+            document.getElementById('guide-box').classList.remove('show');
+            clearTimeout(guideTimeout);
             draggedObject = null;
             updateMenuUI();
         }
@@ -341,12 +378,13 @@
         function startMode1() {
             setupPlayMode();
             currentMode = 'MODE1';
-            weapon.isMagInserted = false; // Reset insertion if reloading ammo
+            weapon.isMagInserted = false;
             weapon.isChambered = false;
             
             const mw = 120, mh = 250;
             mode1Objects.magZone = { x: cw/2 - mw/2, y: ch - mh - 50, w: mw, h: mh };
             spawnBullets();
+            showGuide('ทำมือจีบ (นิ้วโป้ง + นิ้วชี้) หยิบกระสุนแล้วลากไปใส่ในแม็กกาซีน');
         }
 
         function spawnBullets() {
@@ -371,9 +409,7 @@
                 draggedObject = hovered;
                 draggedObject.isGrabbed = true;
             } else if (!cursor.isPinching && draggedObject) {
-                // Drop
                 if (isInsideRect(cursor.x, cursor.y, mode1Objects.magZone)) {
-                    // Loaded
                     weapon.ammo++;
                     mode1Objects.bullets = mode1Objects.bullets.filter(b => b !== draggedObject);
                     updateHUD();
@@ -392,11 +428,9 @@
             setupPlayMode();
             currentMode = 'MODE2';
             
-            // Setup Gun Parts
             const gw = 400, gh = 250;
             mode2Objects.gun = { x: cw/2 - gw/2, y: ch/2 - gh/2, w: gw, h: gh };
             
-            // Magazine entry point at bottom of gun handle
             const magW = 80, magH = 200;
             mode2Objects.mag = {
                 x: weapon.isMagInserted ? mode2Objects.gun.x + 150 : 100,
@@ -405,7 +439,6 @@
                 isInserted: weapon.isMagInserted
             };
 
-            // Slide
             const slideW = 350, slideH = 60;
             mode2Objects.slide = {
                 x: mode2Objects.gun.x + 25,
@@ -414,6 +447,7 @@
                 baseX: mode2Objects.gun.x + 25,
                 isPulled: false
             };
+            showGuide('จีบหยิบแม็กกาซีนใส่ปืนก่อน จากนั้นจีบที่สไลด์แล้วดึงกลับสุดเพื่อขึ้นลำ');
         }
 
         function updateMode2Logic() {
@@ -428,7 +462,6 @@
                 }
             } else if (!cursor.isPinching && draggedObject) {
                 if (draggedObject.type === 'MAG') {
-                    // Check if near gun handle
                     let targetX = mode2Objects.gun.x + 150;
                     let targetY = mode2Objects.gun.y + 100;
                     if (Math.abs(mode2Objects.mag.x - targetX) < 100 && Math.abs(mode2Objects.mag.y - targetY) < 100) {
@@ -439,12 +472,10 @@
                         updateHUD();
                     }
                 } else if (draggedObject.type === 'SLIDE') {
-                    // Check if pulled back enough (moving left)
                     if (mode2Objects.slide.baseX - mode2Objects.slide.x > 100) {
                         weapon.isChambered = true;
                         updateHUD();
                     }
-                    // Snap back
                     mode2Objects.slide.x = mode2Objects.slide.baseX;
                 }
                 draggedObject = null;
@@ -455,7 +486,6 @@
                     mode2Objects.mag.x = cursor.x - mode2Objects.mag.w/2;
                     mode2Objects.mag.y = cursor.y - mode2Objects.mag.h/2;
                 } else if (draggedObject.type === 'SLIDE') {
-                    // Constrain to X axis backwards
                     let newX = cursor.x - mode2Objects.slide.w/2;
                     newX = Math.min(mode2Objects.slide.baseX, Math.max(mode2Objects.slide.baseX - 150, newX));
                     mode2Objects.slide.x = newX;
@@ -467,13 +497,16 @@
             setupPlayMode();
             currentMode = 'MODE3';
             mode3Objects.targets = [];
+            gunFPS = { swayX: 0, swayY: 0, kick: 0 };
+            particles = [];
+            popups = [];
             spawnTarget();
+            showGuide('เล็งด้วยมือ แล้วทำท่าจีบนิ้วโป้ง + นิ้วชี้ เพื่อลั่นไก');
         }
 
         function spawnTarget() {
             if(currentMode !== 'MODE3') return;
             
-            // Random depth scale to simulate 3D (0.5 to 1.5)
             let scale = Math.random() * 1 + 0.5; 
             let baseR = 40;
             mode3Objects.targets.push({
@@ -482,7 +515,8 @@
                 r: baseR * scale,
                 scale: scale,
                 active: true,
-                life: 100 // frames
+                life: 100,
+                wobble: Math.random() * Math.PI * 2
             });
 
             setTimeout(spawnTarget, Math.random() * 2000 + 1000);
@@ -491,20 +525,31 @@
         function shoot() {
             if (!weapon.isChambered || weapon.ammo <= 0) return;
             
-            // Fire weapon
             weapon.ammo--;
-            mode3Objects.recoilOffset = 20; // Visual recoil
+            mode3Objects.recoilOffset = 20;
             mode3Objects.flashOpacity = 1;
-            
-            // Check Hit
+            gunFPS.kick = 28;
+
             for (let i = mode3Objects.targets.length - 1; i >= 0; i--) {
                 let t = mode3Objects.targets[i];
                 if (t.active) {
                     let dist = Math.hypot(cursor.x - t.x, cursor.y - t.y);
                     if (dist < t.r) {
-                        t.active = false; // Hit!
-                        weapon.score += Math.round(100 / t.scale); // Smaller = more points
-                        break; // Pierce one target max
+                        t.active = false;
+                        let pts = Math.round(100 / t.scale);
+                        weapon.score += pts;
+
+                        for (let p = 0; p < 14; p++) {
+                            let ang = Math.random() * Math.PI * 2;
+                            let spd = Math.random() * 6 + 2;
+                            particles.push({
+                                x: t.x, y: t.y,
+                                vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
+                                life: 30, color: Math.random() > 0.5 ? '#facc15' : '#ef4444'
+                            });
+                        }
+                        popups.push({ x: t.x, y: t.y, text: `+${pts}`, life: 45 });
+                        break;
                     }
                 }
             }
@@ -512,9 +557,8 @@
             if(weapon.ammo === 0) weapon.isChambered = false;
             updateHUD();
             
-            // Screen shake
             container.classList.remove('shake');
-            void container.offsetWidth; // trigger reflow
+            void container.offsetWidth;
             container.classList.add('shake');
         }
 
@@ -523,7 +567,6 @@
                 shoot();
             }
 
-            // Update targets life
             for (let i = mode3Objects.targets.length - 1; i >= 0; i--) {
                 let t = mode3Objects.targets[i];
                 t.life--;
@@ -532,9 +575,27 @@
                 }
             }
 
-            // Recoil recovery
             if(mode3Objects.recoilOffset > 0) mode3Objects.recoilOffset -= 2;
-            if(mode3Objects.flashOpacity > 0) mode3Objects.flashOpacity -= 0.1;
+            if(mode3Objects.flashOpacity > 0) mode3Objects.flashOpacity -= 0.12;
+
+            // Gun sway follows hand position (FPS aim feel)
+            let targetSwayX = (cursor.x - cw/2) * 0.09;
+            let targetSwayY = (cursor.y - ch/2) * 0.05;
+            gunFPS.swayX += (targetSwayX - gunFPS.swayX) * 0.15;
+            gunFPS.swayY += (targetSwayY - gunFPS.swayY) * 0.15;
+            gunFPS.kick *= 0.82;
+            if (gunFPS.kick < 0.5) gunFPS.kick = 0;
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.vx; p.y += p.vy; p.vy += 0.3; p.life--;
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+            for (let i = popups.length - 1; i >= 0; i--) {
+                let s = popups[i];
+                s.y -= 1; s.life--;
+                if (s.life <= 0) popups.splice(i, 1);
+            }
         }
 
         function drawCursor() {
@@ -542,16 +603,16 @@
             ctx.save();
             ctx.beginPath();
             if (currentMode === 'MODE3') {
-                // Crosshair
-                ctx.strokeStyle = weapon.isChambered ? (cursor.isPinching ? 'red' : '#0f0') : 'gray';
+                ctx.strokeStyle = weapon.isChambered ? (cursor.isPinching ? '#ef4444' : '#22c55e') : '#9ca3af';
                 ctx.lineWidth = 2;
-                let size = 20 + mode3Objects.recoilOffset;
-                ctx.moveTo(cursor.x - size, cursor.y); ctx.lineTo(cursor.x + size, cursor.y);
-                ctx.moveTo(cursor.x, cursor.y - size); ctx.lineTo(cursor.x, cursor.y + size);
-                ctx.arc(cursor.x, cursor.y, size/2, 0, Math.PI*2);
+                let size = 22 + mode3Objects.recoilOffset;
+                ctx.moveTo(cursor.x - size, cursor.y); ctx.lineTo(cursor.x - size*0.35, cursor.y);
+                ctx.moveTo(cursor.x + size*0.35, cursor.y); ctx.lineTo(cursor.x + size, cursor.y);
+                ctx.moveTo(cursor.x, cursor.y - size); ctx.lineTo(cursor.x, cursor.y - size*0.35);
+                ctx.moveTo(cursor.x, cursor.y + size*0.35); ctx.lineTo(cursor.x, cursor.y + size);
+                ctx.arc(cursor.x, cursor.y, size*0.35, 0, Math.PI*2);
                 ctx.stroke();
             } else {
-                // Normal Cursor
                 ctx.strokeStyle = cursor.isPinching ? '#22c55e' : '#3b82f6';
                 if(draggedObject) ctx.strokeStyle = '#facc15';
                 ctx.lineWidth = 4;
@@ -566,7 +627,6 @@
         }
 
         function drawMode1() {
-            // Draw Magazine Zone
             ctx.fillStyle = 'rgba(50, 50, 50, 0.8)';
             ctx.strokeStyle = 'white';
             ctx.lineWidth = 2;
@@ -578,12 +638,10 @@
             ctx.textAlign = 'center';
             ctx.fillText(`MAGAZINE: ${weapon.ammo}/10`, mode1Objects.magZone.x + mode1Objects.magZone.w/2, mode1Objects.magZone.y + mode1Objects.magZone.h/2);
 
-            // Draw Bullets
             for(let b of mode1Objects.bullets) {
-                ctx.fillStyle = '#fbbf24'; // Gold
+                ctx.fillStyle = '#fbbf24';
                 ctx.beginPath();
                 ctx.rect(b.x, b.y + 10, b.w, b.h - 10);
-                // Bullet tip
                 ctx.moveTo(b.x, b.y + 10);
                 ctx.lineTo(b.x + b.w/2, b.y);
                 ctx.lineTo(b.x + b.w, b.y + 10);
@@ -593,17 +651,14 @@
         }
 
         function drawMode2() {
-            // Draw Gun Body
-            ctx.fillStyle = '#262626'; // Dark gray
+            ctx.fillStyle = '#262626';
             let g = mode2Objects.gun;
-            ctx.fillRect(g.x, g.y, g.w, 60); // Top barrel area
-            ctx.fillRect(g.x + 120, g.y + 60, 100, 150); // Grip
+            ctx.fillRect(g.x, g.y, g.w, 60);
+            ctx.fillRect(g.x + 120, g.y + 60, 100, 150);
             
-            // Draw Mag
             let m = mode2Objects.mag;
             ctx.fillStyle = '#404040';
             ctx.fillRect(m.x, m.y, m.w, m.h);
-            // Bullets in mag visual
             if(!m.isInserted) {
                 ctx.fillStyle = '#fbbf24';
                 for(let i=0; i<weapon.ammo; i++) {
@@ -611,39 +666,121 @@
                 }
             }
 
-            // Draw Slide
             let s = mode2Objects.slide;
-            ctx.fillStyle = s.x < s.baseX - 50 ? '#525252' : '#737373'; // Highlight when pulled
+            ctx.fillStyle = s.x < s.baseX - 50 ? '#525252' : '#737373';
             ctx.fillRect(s.x, s.y, s.w, s.h);
             ctx.strokeStyle = '#171717';
-            // Slide grip grooves
             for(let i=0; i<5; i++) {
                 ctx.strokeRect(s.x + s.w - 40 - (i*15), s.y + 10, 5, 40);
             }
         }
 
         function drawMode3() {
-            // Draw Targets
-            for(let t of mode3Objects.targets) {
-                ctx.save();
-                ctx.translate(t.x, t.y);
-                
-                // Opacity based on life
-                ctx.globalAlpha = t.life / 100;
+            // Ambient vignette for a first-person shooting-range feel
+            let grad = ctx.createRadialGradient(cw/2, ch/2, ch*0.2, cw/2, ch/2, ch*0.75);
+            grad.addColorStop(0, 'rgba(0,0,0,0)');
+            grad.addColorStop(1, 'rgba(0,0,0,0.55)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, cw, ch);
 
-                // Red/White concentric circles
-                ctx.beginPath(); ctx.arc(0, 0, t.r, 0, Math.PI*2); ctx.fillStyle = 'red'; ctx.fill();
-                ctx.beginPath(); ctx.arc(0, 0, t.r * 0.7, 0, Math.PI*2); ctx.fillStyle = 'white'; ctx.fill();
-                ctx.beginPath(); ctx.arc(0, 0, t.r * 0.4, 0, Math.PI*2); ctx.fillStyle = 'red'; ctx.fill();
-                
+            // Targets with shaded rings + slight wobble
+            for (let t of mode3Objects.targets) {
+                ctx.save();
+                let wob = Math.sin((t.life * 0.08) + t.wobble) * 3;
+                ctx.translate(t.x + wob, t.y);
+                ctx.globalAlpha = Math.min(1, t.life / 20);
+
+                let rGrad = ctx.createRadialGradient(-t.r*0.3, -t.r*0.3, t.r*0.1, 0, 0, t.r);
+                rGrad.addColorStop(0, '#ff7b7b');
+                rGrad.addColorStop(0.55, '#dc2626');
+                rGrad.addColorStop(1, '#7f1d1d');
+                ctx.beginPath(); ctx.arc(0, 0, t.r, 0, Math.PI*2); ctx.fillStyle = rGrad; ctx.fill();
+                ctx.beginPath(); ctx.arc(0, 0, t.r*0.65, 0, Math.PI*2); ctx.fillStyle = '#f4f4f5'; ctx.fill();
+                ctx.beginPath(); ctx.arc(0, 0, t.r*0.35, 0, Math.PI*2); ctx.fillStyle = '#dc2626'; ctx.fill();
+                ctx.beginPath(); ctx.arc(0, 0, t.r*0.12, 0, Math.PI*2); ctx.fillStyle = '#facc15'; ctx.fill();
+                ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 2; ctx.stroke();
                 ctx.restore();
             }
 
-            // Muzzle Flash
+            // Hit particles
+            for (let p of particles) {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, p.life / 30);
+                ctx.fillStyle = p.color;
+                ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI*2); ctx.fill();
+                ctx.restore();
+            }
+
+            // Score popups
+            ctx.textAlign = 'center';
+            for (let s of popups) {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, s.life / 45);
+                ctx.fillStyle = '#facc15';
+                ctx.font = 'bold 28px Teko';
+                ctx.fillText(s.text, s.x, s.y);
+                ctx.restore();
+            }
+
+            drawGunFPS();
+
             if(mode3Objects.flashOpacity > 0) {
-                ctx.fillStyle = `rgba(255, 255, 100, ${mode3Objects.flashOpacity})`;
+                ctx.fillStyle = `rgba(255, 255, 100, ${mode3Objects.flashOpacity * 0.25})`;
                 ctx.fillRect(0, 0, cw, ch);
             }
+        }
+
+        // First-person gun model, anchored bottom-center, follows hand sway + recoils on shot
+        function drawGunFPS() {
+            ctx.save();
+            let scaleFactor = Math.min(cw, ch) / 900;
+            let baseX = cw/2 + gunFPS.swayX;
+            let baseY = ch + 30 * scaleFactor + gunFPS.swayY - gunFPS.kick;
+
+            ctx.translate(baseX, baseY);
+            ctx.scale(scaleFactor, scaleFactor);
+            ctx.rotate(gunFPS.swayX * 0.0008);
+
+            // Barrel / slide
+            ctx.fillStyle = '#1c1c1c';
+            ctx.fillRect(-48, -230 + gunFPS.kick*0.5, 96, 190);
+            ctx.fillStyle = 'rgba(255,255,255,0.07)';
+            ctx.fillRect(-48, -230 + gunFPS.kick*0.5, 16, 190);
+
+            // Front sight
+            ctx.fillStyle = '#ef4444';
+            ctx.fillRect(-6, -246 + gunFPS.kick*0.5, 12, 16);
+
+            // Trigger guard / grip
+            ctx.fillStyle = '#171717';
+            ctx.beginPath();
+            ctx.moveTo(-38, -55);
+            ctx.lineTo(38, -55);
+            ctx.lineTo(58, 70);
+            ctx.lineTo(-58, 70);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.05)';
+            ctx.fillRect(-38, -55, 14, 125);
+
+            // Muzzle flash burst at barrel tip
+            if (mode3Objects.flashOpacity > 0) {
+                ctx.save();
+                ctx.globalAlpha = mode3Objects.flashOpacity;
+                ctx.translate(0, -230 + gunFPS.kick*0.5);
+                ctx.fillStyle = '#fef08a';
+                ctx.beginPath();
+                for (let i = 0; i < 8; i++) {
+                    let ang = (i / 8) * Math.PI * 2;
+                    let rad = i % 2 === 0 ? 42 : 16;
+                    ctx.lineTo(Math.cos(ang) * rad, Math.sin(ang) * rad - 20);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+            }
+
+            ctx.restore();
         }
 
         function drawLoop() {
@@ -653,14 +790,13 @@
             if (currentMode === 'MODE2') drawMode2();
             if (currentMode === 'MODE3') drawMode3();
 
-            // Draw Hand Skeleton
             if (handTrackingData && currentMode !== 'MENU') {
                 ctx.save();
                 ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)';
                 ctx.lineWidth = 2;
                 ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
                 for(let lm of handTrackingData) {
-                    let lx = (1 - lm.x) * cw; // Mirrored
+                    let lx = (1 - lm.x) * cw;
                     let ly = lm.y * ch;
                     ctx.beginPath(); ctx.arc(lx, ly, 3, 0, Math.PI*2); ctx.fill();
                 }
