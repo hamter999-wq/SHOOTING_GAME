@@ -1,25 +1,46 @@
+
 <!DOCTYPE html>
 <html lang="th">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AR Tactical Shooter</title>
-    
-    <script src="https://cdn.tailwindcss.com"></script>
+
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Teko:wght@400;600&display=swap');
-        
+        @import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil:wght@500;700;800&family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+        :root {
+            --carbon-950: #080b0d;
+            --carbon-900: #0d1215;
+            --carbon-800: #131a1e;
+            --carbon-700: #1c262b;
+            --steel-600: #3c4a51;
+            --steel-400: #6c7d84;
+            --cyan: #4dd8e6;
+            --cyan-soft: rgba(77, 216, 230, 0.35);
+            --amber: #ffb020;
+            --amber-soft: rgba(255, 176, 32, 0.35);
+            --red: #ff4444;
+            --ghost: #eef4f5;
+            --ghost-dim: #93a5ab;
+        }
+
+        * { box-sizing: border-box; }
+
         body {
-            font-family: 'Teko', sans-serif;
-            background-color: #0a0a0a;
+            font-family: 'Rajdhani', sans-serif;
+            background-color: var(--carbon-950);
             margin: 0;
             overflow: hidden;
-            color: white;
+            color: var(--ghost);
             user-select: none;
         }
+
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .stencil { font-family: 'Big Shoulders Stencil', sans-serif; }
 
         #game-container {
             position: relative;
@@ -31,9 +52,10 @@
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
             object-fit: cover;
-            transform: scaleX(-1); /* Mirror */
+            transform: scaleX(-1);
             z-index: 1;
-            opacity: 0.6;
+            opacity: 0.45;
+            filter: saturate(0.85) contrast(1.05);
         }
 
         #output_canvas {
@@ -42,116 +64,222 @@
             z-index: 10;
         }
 
-        /* UI Overlays */
-        #ui-layer {
+        .vf-corner {
             position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 20;
+            width: 30px; height: 30px;
+            border-color: var(--cyan);
+            opacity: 0.8;
+            z-index: 22;
             pointer-events: none;
-            display: flex;
-            flex-direction: column;
+        }
+        .vf-tl { top: 16px; left: 16px; border-top: 2px solid; border-left: 2px solid; }
+        .vf-tr { top: 16px; right: 16px; border-top: 2px solid; border-right: 2px solid; }
+        .vf-bl { bottom: 16px; left: 16px; border-bottom: 2px solid; border-left: 2px solid; }
+        .vf-br { bottom: 16px; right: 16px; border-bottom: 2px solid; border-right: 2px solid; }
+
+        .vf-readout {
+            position: absolute;
+            z-index: 22;
+            font-size: 0.72rem;
+            letter-spacing: 1.5px;
+            color: var(--cyan);
+            opacity: 0.85;
+            pointer-events: none;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+        #vf-rec { top: 22px; left: 54px; }
+        #vf-rec .dot {
+            display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+            background: var(--red); margin-right: 6px; vertical-align: middle;
+            animation: blink 1.4s ease-in-out infinite;
+        }
+        #vf-mode { top: 22px; right: 54px; text-align: right; color: var(--ghost-dim); }
+        #vf-mode #vf-clock { color: var(--cyan); }
+        #vf-sys { bottom: 22px; left: 54px; color: var(--ghost-dim); }
+        #vf-sig { bottom: 20px; right: 54px; display: flex; gap: 3px; align-items: flex-end; }
+        #vf-sig span { display: block; width: 4px; background: var(--cyan); opacity: 0.7; }
+        #vf-sig span:nth-child(1) { height: 6px; }
+        #vf-sig span:nth-child(2) { height: 9px; }
+        #vf-sig span:nth-child(3) { height: 12px; }
+        #vf-sig span:nth-child(4) { height: 15px; }
+
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
+
+        .scan-sweep {
+            position: absolute; left: 0; right: 0; height: 140px;
+            background: linear-gradient(to bottom, transparent, rgba(77,216,230,0.055), transparent);
+            z-index: 15; pointer-events: none;
+            animation: sweep 7s linear infinite;
+        }
+        @keyframes sweep { 0% { top: -140px; } 100% { top: 100%; } }
+
+        .grid-noise {
+            position: absolute; inset: 0; z-index: 16; pointer-events: none; opacity: 0.05;
+            background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.5) 0px, transparent 1px, transparent 3px);
+            mix-blend-mode: overlay;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .scan-sweep { animation: none; opacity: 0.02; }
+            #vf-rec .dot { animation: none; }
+        }
+
+        .hud-panel {
+            background: linear-gradient(150deg, rgba(19,26,30,0.92), rgba(9,12,14,0.88));
+            border: 1px solid var(--steel-600);
+            box-shadow: 0 0 0 1px rgba(77,216,230,0.08) inset, 0 8px 24px rgba(0,0,0,0.4);
+            clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+        }
+
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 20; pointer-events: none; display: flex; flex-direction: column;
         }
 
         .screen {
             display: none;
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 30;
-            background: rgba(0,0,0,0.8);
-            backdrop-filter: blur(10px);
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
+            background: radial-gradient(ellipse at 50% 30%, rgba(20,28,32,0.92), rgba(4,6,7,0.97));
+            backdrop-filter: blur(6px);
+            flex-direction: column; justify-content: center; align-items: center;
             pointer-events: auto;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        .screen.active { display: flex; }
+
+        .menu-inner { width: 100%; max-width: 920px; display: flex; flex-direction: column; align-items: center; }
+
+        .sys-tag {
+            font-size: 0.85rem; letter-spacing: 3px; color: var(--amber);
+            margin-bottom: 6px; text-transform: uppercase;
+        }
+        .sys-tag .dot {
+            display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+            background: var(--amber); margin-right: 8px; vertical-align: middle;
+            animation: blink 1.6s ease-in-out infinite;
         }
 
-        .screen.active {
-            display: flex;
+        .hero-title {
+            font-family: 'Big Shoulders Stencil', sans-serif;
+            font-weight: 800;
+            font-size: clamp(3.2rem, 9vw, 6rem);
+            letter-spacing: 4px;
+            margin: 0;
+            color: var(--ghost);
+            text-shadow: 0 0 24px var(--cyan-soft), 0 0 4px rgba(255,255,255,0.3);
+            line-height: 0.95;
+        }
+        .hero-sub {
+            font-size: 1.3rem; letter-spacing: 8px; margin: 2px 0 28px 0;
+            color: var(--amber); text-transform: uppercase; font-weight: 600;
         }
 
-        .btn-menu {
-            background: linear-gradient(45deg, #ef4444, #b91c1c);
-            border: 2px solid #fca5a5;
-            padding: 15px 40px;
-            font-size: 2rem;
-            color: white;
-            text-transform: uppercase;
-            cursor: pointer;
-            transition: all 0.2s;
-            clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
-            margin: 10px;
-            width: 300px;
-            text-align: center;
+        .status-strip {
+            display: flex; align-items: center; justify-content: center;
+            padding: 16px 28px; margin-bottom: 30px; gap: 22px; flex-wrap: wrap;
         }
-        
-        .btn-menu:hover {
-            transform: scale(1.05);
-            background: linear-gradient(45deg, #f87171, #ef4444);
-            box-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
-        }
+        .status-item { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 90px; }
+        .status-label { font-size: 0.75rem; letter-spacing: 2px; color: var(--ghost-dim); text-transform: uppercase; }
+        .status-value { font-size: 1rem; color: var(--ghost); }
+        .status-divider { width: 1px; height: 34px; background: var(--steel-600); }
 
-        .btn-menu:disabled {
-            background: #525252;
-            border-color: #737373;
-            color: #a3a3a3;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
+        .ammo-ticks { display: flex; gap: 3px; }
+        .ammo-ticks span {
+            width: 6px; height: 16px; background: var(--steel-600);
+            clip-path: polygon(0 3px, 100% 0, 100% 100%, 0 calc(100% - 3px));
         }
+        .ammo-ticks span.filled { background: var(--amber); box-shadow: 0 0 6px var(--amber-soft); }
+
+        .status-pill {
+            font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;
+            padding: 3px 12px; border: 1px solid var(--steel-600); border-radius: 3px;
+        }
+        .status-pill.yes { color: var(--cyan); border-color: var(--cyan); text-shadow: 0 0 8px var(--cyan-soft); }
+        .status-pill.no { color: var(--red); border-color: var(--red); opacity: 0.85; }
+
+        .phase-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; width: 100%;
+        }
+        @media (max-width: 760px) { .phase-grid { grid-template-columns: 1fr; } }
+
+        .phase-card {
+            padding: 22px 18px; text-align: left; cursor: pointer;
+            display: flex; flex-direction: column; gap: 8px;
+            transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+            position: relative; overflow: hidden;
+            font-family: 'Rajdhani', sans-serif; background: none;
+        }
+        .phase-card:hover:not(:disabled) {
+            transform: translateY(-4px);
+            border-color: var(--cyan);
+            box-shadow: 0 0 0 1px var(--cyan-soft) inset, 0 12px 28px rgba(0,0,0,0.5), 0 0 20px rgba(77,216,230,0.15);
+        }
+        .phase-card:disabled { opacity: 0.4; cursor: not-allowed; }
+        .phase-num { font-size: 0.72rem; letter-spacing: 2px; color: var(--amber); }
+        .phase-icon { width: 34px; height: 34px; color: var(--cyan); stroke: currentColor; fill: none; stroke-width: 2; }
+        .phase-title {
+            font-family: 'Big Shoulders Stencil', sans-serif; font-weight: 700;
+            font-size: 1.6rem; letter-spacing: 1px; color: var(--ghost);
+        }
+        .phase-desc { font-size: 0.95rem; color: var(--ghost-dim); line-height: 1.3; }
+
+        .hint-line {
+            margin-top: 26px; font-size: 0.95rem; color: var(--ghost-dim);
+            letter-spacing: 0.5px; text-align: center;
+        }
+        .hint-line .mono { color: var(--amber); }
 
         #hud {
-            display: none;
-            padding: 20px;
-            justify-content: space-between;
-            width: 100%;
-            pointer-events: none;
+            display: none; position: absolute; top: 60px; left: 0; right: 0;
+            padding: 0 26px; justify-content: space-between; align-items: flex-start;
+            pointer-events: none; z-index: 21;
         }
-
-        .hud-box {
-            background: rgba(0,0,0,0.5);
-            border-left: 4px solid #ef4444;
-            padding: 10px 20px;
-            font-size: 1.5rem;
-            letter-spacing: 2px;
-        }
+        .hud-block { padding: 10px 18px; min-width: 190px; }
+        .hud-row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+        .hud-row:last-child { margin-bottom: 0; }
+        .hud-label { font-size: 0.7rem; letter-spacing: 2px; color: var(--ghost-dim); text-transform: uppercase; width: 58px; }
+        .hud-num { font-size: 1.1rem; color: var(--ghost); }
+        #hud-status { font-size: 1rem; letter-spacing: 1px; }
+        .status-ready { color: var(--cyan); text-shadow: 0 0 8px var(--cyan-soft); }
+        .status-notready { color: var(--red); }
+        .hud-right { text-align: right; }
+        .hud-right .hud-row { justify-content: flex-end; }
 
         #btn-back {
             position: absolute;
-            bottom: 30px;
-            left: 30px;
+            bottom: 26px; left: 50%; transform: translateX(-50%);
             z-index: 40;
-            padding: 10px 20px;
-            background: rgba(255,255,255,0.1);
-            border: 1px solid white;
-            color: white;
-            font-size: 1.5rem;
-            cursor: pointer;
-            display: none;
-            pointer-events: auto;
+            padding: 9px 22px;
+            background: rgba(19,26,30,0.85);
+            border: 1px solid var(--steel-600);
+            clip-path: polygon(8px 0, 100% 0, 100% 100%, 0 100%, 0 8px);
+            color: var(--ghost-dim);
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 1rem; letter-spacing: 2px; text-transform: uppercase;
+            cursor: pointer; display: none; pointer-events: auto;
+            transition: color 0.2s, border-color 0.2s;
         }
-
-        #btn-back:hover { background: rgba(255,255,255,0.3); }
+        #btn-back:hover { color: var(--cyan); border-color: var(--cyan); }
 
         #guide-box {
             position: absolute;
-            bottom: 110px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.72);
-            border: 1px solid rgba(239,68,68,0.6);
-            padding: 12px 26px;
-            font-size: 1.4rem;
-            letter-spacing: 1px;
-            border-radius: 6px;
-            z-index: 25;
-            opacity: 0;
+            bottom: 92px; left: 50%; transform: translateX(-50%) translateY(6px);
+            padding: 12px 22px 12px 16px;
+            display: flex; align-items: center; gap: 12px;
+            z-index: 25; opacity: 0;
             transition: opacity 0.5s ease, transform 0.5s ease;
-            pointer-events: none;
-            text-align: center;
-            max-width: 85%;
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            pointer-events: none; text-align: left; max-width: 88%;
         }
-        #guide-box.show { opacity: 1; transform: translateX(-50%) translateY(-5px); }
+        #guide-box.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        #guide-box .g-label {
+            font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; letter-spacing: 2px;
+            color: var(--amber); border-left: 2px solid var(--amber); padding-left: 10px;
+            white-space: nowrap;
+        }
+        #guide-box .g-text { font-size: 1.15rem; color: var(--ghost); letter-spacing: 0.3px; }
 
         .shake { animation: shake 0.2s cubic-bezier(.36,.07,.19,.97) both; }
         @keyframes shake {
@@ -160,6 +288,7 @@
             30%, 50%, 70% { transform: translate3d(-10px, 0, 0); }
             40%, 60% { transform: translate3d(10px, 0, 0); }
         }
+        @media (prefers-reduced-motion: reduce) { .shake { animation: none; } }
     </style>
 </head>
 <body>
@@ -168,39 +297,97 @@
         <video id="webcam" autoplay playsinline></video>
         <canvas id="output_canvas"></canvas>
 
+        <div class="scan-sweep"></div>
+        <div class="grid-noise"></div>
+
+        <div class="vf-corner vf-tl"></div>
+        <div class="vf-corner vf-tr"></div>
+        <div class="vf-corner vf-bl"></div>
+        <div class="vf-corner vf-br"></div>
+        <div class="vf-readout mono" id="vf-rec"><span class="dot"></span>CAM-01 LIVE</div>
+        <div class="vf-readout mono" id="vf-mode">AR-TAC · <span id="vf-mode-name">STANDBY</span><br><span id="vf-clock">00:00:00</span></div>
+        <div class="vf-readout mono" id="vf-sys">AR-TAC OS v2.4</div>
+        <div class="vf-readout mono" id="vf-sig"><span></span><span></span><span></span><span></span></div>
+
         <div id="ui-layer">
             <div id="hud">
-                <div class="hud-box">
-                    AMMO: <span id="hud-ammo" class="text-red-400">0/10</span>
+                <div class="hud-block hud-panel">
+                    <div class="hud-row">
+                        <span class="hud-label mono">AMMO</span>
+                        <div class="ammo-ticks" id="hud-ammo-ticks"></div>
+                    </div>
+                    <div class="hud-row">
+                        <span class="hud-label mono">STAT</span>
+                        <span id="hud-status" class="mono status-notready">EMPTY</span>
+                    </div>
                 </div>
-                <div class="hud-box text-right">
-                    STATUS: <span id="hud-status" class="text-yellow-400">EMPTY</span><br>
-                    SCORE: <span id="hud-score" class="text-green-400">0</span>
+                <div class="hud-block hud-panel hud-right">
+                    <div class="hud-row">
+                        <span class="hud-label mono">MODE</span>
+                        <span class="hud-num mono" id="hud-mode-name">—</span>
+                    </div>
+                    <div class="hud-row">
+                        <span class="hud-label mono">SCORE</span>
+                        <span class="hud-num mono" id="hud-score" style="color:var(--amber)">0</span>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div id="guide-box"></div>
+        <div id="guide-box" class="hud-panel">
+            <span class="g-label mono">OBJECTIVE</span>
+            <span class="g-text" id="guide-text"></span>
+        </div>
 
-        <button id="btn-back" onclick="goToMenu()">BACK TO MENU</button>
+        <button id="btn-back" onclick="goToMenu()">◂ Exit to Ops Menu</button>
 
-        <!-- Main Menu Screen -->
         <div id="screen-menu" class="screen active">
-            <h1 class="text-7xl mb-2 text-red-500 drop-shadow-[0_0_15px_rgba(239,68,68,0.8)]">AR TACTICAL</h1>
-            <p class="text-2xl mb-8 text-gray-300 tracking-widest">SHOOTING RANGE</p>
-            
-            <div class="glass p-6 rounded-lg text-center mb-6 bg-black/50 border border-red-500/30 w-96">
-                <h3 class="text-xl text-red-400 mb-2 border-b border-red-500/30 pb-2">WEAPON STATUS</h3>
-                <p class="text-lg flex justify-between"><span>Mag Ammo:</span> <span id="menu-ammo" class="font-bold">0/10</span></p>
-                <p class="text-lg flex justify-between"><span>Mag Inserted:</span> <span id="menu-inserted" class="font-bold text-red-400">NO</span></p>
-                <p class="text-lg flex justify-between"><span>Chambered:</span> <span id="menu-chambered" class="font-bold text-red-400">NO</span></p>
-            </div>
+            <div class="menu-inner">
+                <div class="sys-tag"><span class="dot"></span>SYSTEM READY</div>
+                <h1 class="hero-title">AR TACTICAL</h1>
+                <p class="hero-sub">Shooting Range Protocol</p>
 
-            <button class="btn-menu" onclick="startMode1()">1. LOAD AMMO</button>
-            <button class="btn-menu" id="btn-mode2" onclick="startMode2()">2. RELOAD & CHAMBER</button>
-            <button class="btn-menu" id="btn-mode3" onclick="startMode3()">3. SHOOTING RANGE</button>
-            
-            <p class="mt-8 text-lg text-gray-400">Controls: Use Pinch gesture (Thumb + Index) or Mouse click/drag</p>
+                <div class="status-strip hud-panel">
+                    <div class="status-item">
+                        <span class="status-label">Ammo</span>
+                        <div class="ammo-ticks" id="menu-ammo-ticks"></div>
+                        <span class="status-value mono" id="menu-ammo">0/10</span>
+                    </div>
+                    <div class="status-divider"></div>
+                    <div class="status-item">
+                        <span class="status-label">Mag Inserted</span>
+                        <span class="status-pill no" id="menu-inserted">NO</span>
+                    </div>
+                    <div class="status-divider"></div>
+                    <div class="status-item">
+                        <span class="status-label">Chambered</span>
+                        <span class="status-pill no" id="menu-chambered">NO</span>
+                    </div>
+                </div>
+
+                <div class="phase-grid">
+                    <button class="phase-card hud-panel" onclick="startMode1()">
+                        <span class="phase-num mono">PHASE 01</span>
+                        <svg class="phase-icon" viewBox="0 0 40 40"><path d="M14 8 L20 2 L26 8 L26 24 L14 24 Z" fill="currentColor" stroke="none"/><rect x="12" y="24" width="16" height="9" rx="1.5"/></svg>
+                        <span class="phase-title">Load Ammo</span>
+                        <span class="phase-desc">Pinch each round and place it into the magazine.</span>
+                    </button>
+                    <button class="phase-card hud-panel" id="btn-mode2" onclick="startMode2()">
+                        <span class="phase-num mono">PHASE 02</span>
+                        <svg class="phase-icon" viewBox="0 0 40 40"><path d="M8 20 A12 12 0 1 1 12 28" /><path d="M8 20 L8 12 M8 20 L16 20" fill="currentColor" stroke="none"/><rect x="22" y="10" width="12" height="20" rx="1.5"/></svg>
+                        <span class="phase-title">Reload &amp; Chamber</span>
+                        <span class="phase-desc">Insert the magazine, then pull the slide back to chamber.</span>
+                    </button>
+                    <button class="phase-card hud-panel" id="btn-mode3" onclick="startMode3()">
+                        <span class="phase-num mono">PHASE 03</span>
+                        <svg class="phase-icon" viewBox="0 0 40 40"><circle cx="20" cy="20" r="14"/><line x1="20" y1="2" x2="20" y2="11"/><line x1="20" y1="29" x2="20" y2="38"/><line x1="2" y1="20" x2="11" y2="20"/><line x1="29" y1="20" x2="38" y2="20"/><circle cx="20" cy="20" r="2.5" fill="currentColor" stroke="none"/></svg>
+                        <span class="phase-title">Shooting Range</span>
+                        <span class="phase-desc">Aim with your hand, pinch to fire at incoming targets.</span>
+                    </button>
+                </div>
+
+                <p class="hint-line">GESTURE CONTROL: <span class="mono">Pinch thumb + index</span> to interact · mouse click/drag also works</p>
+            </div>
         </div>
     </div>
 
@@ -220,10 +407,23 @@
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
-        // Global Game States
-        let currentMode = 'MENU'; // MENU, MODE1, MODE2, MODE3
-        
-        // Weapon States
+        function updateClock() {
+            const el = document.getElementById('vf-clock');
+            if (!el) return;
+            const now = new Date();
+            el.innerText = now.toLocaleTimeString('en-GB', { hour12: false });
+        }
+        updateClock();
+        setInterval(updateClock, 1000);
+
+        function setModeLabel(name) {
+            document.getElementById('vf-mode-name').innerText = name;
+            const hudName = document.getElementById('hud-mode-name');
+            if (hudName) hudName.innerText = name;
+        }
+
+        let currentMode = 'MENU';
+
         let weapon = {
             ammo: 0,
             maxAmmo: 10,
@@ -232,35 +432,42 @@
             score: 0
         };
 
-        // Cursor & Interaction
-        let cursor = { x: -100, y: -100, isPinching: false, justPinched: false, state: 'NORMAL' };
+        let cursor = { x: -100, y: -100, isPinching: false, justPinched: false };
         let draggedObject = null;
         let handTrackingData = null;
-        
-        // Mouse Fallback
-        let mouseX = 0, mouseY = 0, isMouseDown = false, justMouseDown = false;
 
-        // Specific Mode Objects
+        let mouseX = 0, mouseY = 0, isMouseDown = false;
+
         let mode1Objects = { bullets: [], magZone: null };
         let mode2Objects = { gun: null, mag: null, slide: null };
         let mode3Objects = { targets: [], crosshairScale: 1, recoilOffset: 0, flashOpacity: 0 };
 
-        // Mode 3 FPS gun rig + FX
         let gunFPS = { swayX: 0, swayY: 0, kick: 0 };
         let particles = [];
         let popups = [];
+        let reticleAngle = 0;
 
-        // Guide tooltip
         let guideTimeout = null;
-        function showGuide(text, duration = 4000) {
+        function showGuide(text, duration = 4200) {
             const box = document.getElementById('guide-box');
+            const txt = document.getElementById('guide-text');
             clearTimeout(guideTimeout);
-            box.innerText = text;
+            txt.innerText = text;
             box.classList.add('show');
             guideTimeout = setTimeout(() => box.classList.remove('show'), duration);
         }
 
-        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        function renderAmmoTicks(elId, count, max) {
+            const el = document.getElementById(elId);
+            if (!el) return;
+            let html = '';
+            for (let i = 0; i < max; i++) {
+                html += `<span class="${i < count ? 'filled' : ''}"></span>`;
+            }
+            el.innerHTML = html;
+        }
+
+        const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
         hands.setOptions({
             maxNumHands: 1,
             modelComplexity: 1,
@@ -270,7 +477,7 @@
         hands.onResults(onResults);
 
         const camera = new Camera(videoElement, {
-            onFrame: async () => { await hands.send({image: videoElement}); },
+            onFrame: async () => { await hands.send({ image: videoElement }); },
             width: 1280, height: 720
         });
         camera.start();
@@ -278,7 +485,7 @@
         function onResults(results) {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 handTrackingData = results.multiHandLandmarks[0];
-                
+
                 const indexTip = handTrackingData[8];
                 const thumbTip = handTrackingData[4];
 
@@ -300,19 +507,18 @@
             }
         }
 
-        // Mouse Fallback Events
         window.addEventListener('mousemove', e => {
             mouseX = e.clientX; mouseY = e.clientY;
-            if(!handTrackingData) { cursor.x = mouseX; cursor.y = mouseY; handleInput(isMouseDown); }
+            if (!handTrackingData) { cursor.x = mouseX; cursor.y = mouseY; handleInput(isMouseDown); }
         });
         window.addEventListener('mousedown', e => {
-            if(e.target.tagName === 'BUTTON') return;
+            if (e.target.tagName === 'BUTTON') return;
             isMouseDown = true;
-            if(!handTrackingData) { cursor.x = mouseX; cursor.y = mouseY; handleInput(true); }
+            if (!handTrackingData) { cursor.x = mouseX; cursor.y = mouseY; handleInput(true); }
         });
         window.addEventListener('mouseup', () => {
             isMouseDown = false;
-            if(!handTrackingData) handleInput(false);
+            if (!handTrackingData) handleInput(false);
         });
 
         function handleInput(isActionActive) {
@@ -330,30 +536,31 @@
 
         function updateMenuUI() {
             document.getElementById('menu-ammo').innerText = `${weapon.ammo}/${weapon.maxAmmo}`;
-            
+            renderAmmoTicks('menu-ammo-ticks', weapon.ammo, weapon.maxAmmo);
+
             const magText = document.getElementById('menu-inserted');
             magText.innerText = weapon.isMagInserted ? "YES" : "NO";
-            magText.className = weapon.isMagInserted ? "font-bold text-green-400" : "font-bold text-red-400";
-            
+            magText.className = weapon.isMagInserted ? "status-pill yes" : "status-pill no";
+
             const chamberText = document.getElementById('menu-chambered');
             chamberText.innerText = weapon.isChambered ? "YES" : "NO";
-            chamberText.className = weapon.isChambered ? "font-bold text-green-400" : "font-bold text-red-400";
+            chamberText.className = weapon.isChambered ? "status-pill yes" : "status-pill no";
 
             document.getElementById('btn-mode2').disabled = (weapon.ammo === 0 && !weapon.isMagInserted);
             document.getElementById('btn-mode3').disabled = !weapon.isChambered;
         }
 
         function updateHUD() {
-            document.getElementById('hud-ammo').innerText = `${weapon.ammo}/${weapon.maxAmmo}`;
+            renderAmmoTicks('hud-ammo-ticks', weapon.ammo, weapon.maxAmmo);
             document.getElementById('hud-score').innerText = weapon.score;
             let status = "READY";
-            if(!weapon.isMagInserted) status = "INSERT MAG";
-            else if(!weapon.isChambered) status = "PULL SLIDE";
-            else if(weapon.ammo === 0) status = "EMPTY";
-            
+            if (!weapon.isMagInserted) status = "INSERT MAG";
+            else if (!weapon.isChambered) status = "PULL SLIDE";
+            else if (weapon.ammo === 0) status = "EMPTY";
+
             const hudStatus = document.getElementById('hud-status');
             hudStatus.innerText = status;
-            hudStatus.className = (status === "READY") ? "text-green-400" : "text-red-400";
+            hudStatus.className = (status === "READY") ? "mono status-ready" : "mono status-notready";
         }
 
         function goToMenu() {
@@ -364,37 +571,39 @@
             document.getElementById('guide-box').classList.remove('show');
             clearTimeout(guideTimeout);
             draggedObject = null;
+            setModeLabel('STANDBY');
             updateMenuUI();
         }
 
-        function setupPlayMode() {
+        function setupPlayMode(label) {
             document.getElementById('screen-menu').classList.remove('active');
             document.getElementById('hud').style.display = 'flex';
             document.getElementById('btn-back').style.display = 'block';
             draggedObject = null;
+            setModeLabel(label);
             updateHUD();
         }
 
         function startMode1() {
-            setupPlayMode();
+            setupPlayMode('LOAD AMMO');
             currentMode = 'MODE1';
             weapon.isMagInserted = false;
             weapon.isChambered = false;
-            
-            const mw = 120, mh = 250;
-            mode1Objects.magZone = { x: cw/2 - mw/2, y: ch - mh - 50, w: mw, h: mh };
+
+            const mw = 130, mh = 260;
+            mode1Objects.magZone = { x: cw / 2 - mw / 2, y: ch - mh - 50, w: mw, h: mh };
             spawnBullets();
-            showGuide('ทำมือจีบ (นิ้วโป้ง + นิ้วชี้) หยิบกระสุนแล้วลากไปใส่ในแม็กกาซีน');
+            showGuide('Pinch (thumb + index) each round, drag it into the magazine slot.');
         }
 
         function spawnBullets() {
             mode1Objects.bullets = [];
             let needed = weapon.maxAmmo - weapon.ammo;
-            for(let i=0; i<needed; i++) {
+            for (let i = 0; i < needed; i++) {
                 mode1Objects.bullets.push({
                     x: Math.random() * (cw - 100) + 50,
-                    y: Math.random() * (ch/2) + 50,
-                    w: 20, h: 60, isGrabbed: false
+                    y: Math.random() * (ch / 2) + 50,
+                    w: 20, h: 58, isGrabbed: false
                 });
             }
         }
@@ -419,18 +628,18 @@
             }
 
             if (draggedObject) {
-                draggedObject.x = cursor.x - draggedObject.w/2;
-                draggedObject.y = cursor.y - draggedObject.h/2;
+                draggedObject.x = cursor.x - draggedObject.w / 2;
+                draggedObject.y = cursor.y - draggedObject.h / 2;
             }
         }
 
         function startMode2() {
-            setupPlayMode();
+            setupPlayMode('RELOAD');
             currentMode = 'MODE2';
-            
+
             const gw = 400, gh = 250;
-            mode2Objects.gun = { x: cw/2 - gw/2, y: ch/2 - gh/2, w: gw, h: gh };
-            
+            mode2Objects.gun = { x: cw / 2 - gw / 2, y: ch / 2 - gh / 2, w: gw, h: gh };
+
             const magW = 80, magH = 200;
             mode2Objects.mag = {
                 x: weapon.isMagInserted ? mode2Objects.gun.x + 150 : 100,
@@ -447,7 +656,7 @@
                 baseX: mode2Objects.gun.x + 25,
                 isPulled: false
             };
-            showGuide('จีบหยิบแม็กกาซีนใส่ปืนก่อน จากนั้นจีบที่สไลด์แล้วดึงกลับสุดเพื่อขึ้นลำ');
+            showGuide('Pinch the magazine into the grip, then pinch the slide and pull it fully back.');
         }
 
         function updateMode2Logic() {
@@ -483,10 +692,10 @@
 
             if (draggedObject) {
                 if (draggedObject.type === 'MAG') {
-                    mode2Objects.mag.x = cursor.x - mode2Objects.mag.w/2;
-                    mode2Objects.mag.y = cursor.y - mode2Objects.mag.h/2;
+                    mode2Objects.mag.x = cursor.x - mode2Objects.mag.w / 2;
+                    mode2Objects.mag.y = cursor.y - mode2Objects.mag.h / 2;
                 } else if (draggedObject.type === 'SLIDE') {
-                    let newX = cursor.x - mode2Objects.slide.w/2;
+                    let newX = cursor.x - mode2Objects.slide.w / 2;
                     newX = Math.min(mode2Objects.slide.baseX, Math.max(mode2Objects.slide.baseX - 150, newX));
                     mode2Objects.slide.x = newX;
                 }
@@ -494,24 +703,24 @@
         }
 
         function startMode3() {
-            setupPlayMode();
+            setupPlayMode('LIVE FIRE');
             currentMode = 'MODE3';
             mode3Objects.targets = [];
             gunFPS = { swayX: 0, swayY: 0, kick: 0 };
             particles = [];
             popups = [];
             spawnTarget();
-            showGuide('เล็งด้วยมือ แล้วทำท่าจีบนิ้วโป้ง + นิ้วชี้ เพื่อลั่นไก');
+            showGuide('Aim with your hand — pinch thumb + index to pull the trigger.');
         }
 
         function spawnTarget() {
-            if(currentMode !== 'MODE3') return;
-            
-            let scale = Math.random() * 1 + 0.5; 
+            if (currentMode !== 'MODE3') return;
+
+            let scale = Math.random() * 1 + 0.5;
             let baseR = 40;
             mode3Objects.targets.push({
                 x: Math.random() * (cw - 200) + 100,
-                y: Math.random() * (ch - 300) + 100,
+                y: Math.random() * (ch - 320) + 120,
                 r: baseR * scale,
                 scale: scale,
                 active: true,
@@ -524,7 +733,7 @@
 
         function shoot() {
             if (!weapon.isChambered || weapon.ammo <= 0) return;
-            
+
             weapon.ammo--;
             mode3Objects.recoilOffset = 20;
             mode3Objects.flashOpacity = 1;
@@ -539,13 +748,13 @@
                         let pts = Math.round(100 / t.scale);
                         weapon.score += pts;
 
-                        for (let p = 0; p < 14; p++) {
+                        for (let p = 0; p < 16; p++) {
                             let ang = Math.random() * Math.PI * 2;
                             let spd = Math.random() * 6 + 2;
                             particles.push({
                                 x: t.x, y: t.y,
                                 vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
-                                life: 30, color: Math.random() > 0.5 ? '#facc15' : '#ef4444'
+                                life: 30, color: Math.random() > 0.5 ? '#ffb020' : '#4dd8e6'
                             });
                         }
                         popups.push({ x: t.x, y: t.y, text: `+${pts}`, life: 45 });
@@ -554,33 +763,28 @@
                 }
             }
 
-            if(weapon.ammo === 0) weapon.isChambered = false;
+            if (weapon.ammo === 0) weapon.isChambered = false;
             updateHUD();
-            
+
             container.classList.remove('shake');
             void container.offsetWidth;
             container.classList.add('shake');
         }
 
         function updateMode3Logic() {
-            if (cursor.justPinched) {
-                shoot();
-            }
+            if (cursor.justPinched) shoot();
 
             for (let i = mode3Objects.targets.length - 1; i >= 0; i--) {
                 let t = mode3Objects.targets[i];
                 t.life--;
-                if (t.life <= 0 || !t.active) {
-                    mode3Objects.targets.splice(i, 1);
-                }
+                if (t.life <= 0 || !t.active) mode3Objects.targets.splice(i, 1);
             }
 
-            if(mode3Objects.recoilOffset > 0) mode3Objects.recoilOffset -= 2;
-            if(mode3Objects.flashOpacity > 0) mode3Objects.flashOpacity -= 0.12;
+            if (mode3Objects.recoilOffset > 0) mode3Objects.recoilOffset -= 2;
+            if (mode3Objects.flashOpacity > 0) mode3Objects.flashOpacity -= 0.12;
 
-            // Gun sway follows hand position (FPS aim feel)
-            let targetSwayX = (cursor.x - cw/2) * 0.09;
-            let targetSwayY = (cursor.y - ch/2) * 0.05;
+            let targetSwayX = (cursor.x - cw / 2) * 0.09;
+            let targetSwayY = (cursor.y - ch / 2) * 0.05;
             gunFPS.swayX += (targetSwayX - gunFPS.swayX) * 0.15;
             gunFPS.swayY += (targetSwayY - gunFPS.swayY) * 0.15;
             gunFPS.kick *= 0.82;
@@ -598,161 +802,278 @@
             }
         }
 
-        function drawCursor() {
-            if (cursor.x < 0) return;
+        function drawReticle(x, y, radius, color, filled, rotation) {
             ctx.save();
+            ctx.translate(x, y);
+
+            ctx.rotate(rotation);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1.5;
+            ctx.globalAlpha = 0.85;
             ctx.beginPath();
-            if (currentMode === 'MODE3') {
-                ctx.strokeStyle = weapon.isChambered ? (cursor.isPinching ? '#ef4444' : '#22c55e') : '#9ca3af';
-                ctx.lineWidth = 2;
-                let size = 22 + mode3Objects.recoilOffset;
-                ctx.moveTo(cursor.x - size, cursor.y); ctx.lineTo(cursor.x - size*0.35, cursor.y);
-                ctx.moveTo(cursor.x + size*0.35, cursor.y); ctx.lineTo(cursor.x + size, cursor.y);
-                ctx.moveTo(cursor.x, cursor.y - size); ctx.lineTo(cursor.x, cursor.y - size*0.35);
-                ctx.moveTo(cursor.x, cursor.y + size*0.35); ctx.lineTo(cursor.x, cursor.y + size);
-                ctx.arc(cursor.x, cursor.y, size*0.35, 0, Math.PI*2);
+            ctx.arc(0, 0, radius, 0, Math.PI * 2);
+            ctx.stroke();
+            for (let i = 0; i < 8; i++) {
+                let a = (i / 8) * Math.PI * 2;
+                let inner = radius - 5;
+                let outer = radius + (i % 2 === 0 ? 6 : 3);
+                ctx.beginPath();
+                ctx.moveTo(Math.cos(a) * inner, Math.sin(a) * inner);
+                ctx.lineTo(Math.cos(a) * outer, Math.sin(a) * outer);
                 ctx.stroke();
-            } else {
-                ctx.strokeStyle = cursor.isPinching ? '#22c55e' : '#3b82f6';
-                if(draggedObject) ctx.strokeStyle = '#facc15';
-                ctx.lineWidth = 4;
-                ctx.arc(cursor.x, cursor.y, 15, 0, Math.PI * 2);
-                ctx.stroke();
-                if(cursor.isPinching) {
-                    ctx.fillStyle = ctx.strokeStyle;
-                    ctx.fill();
-                }
+            }
+            ctx.rotate(-rotation);
+
+            ctx.globalAlpha = 1;
+            ctx.beginPath();
+            ctx.moveTo(-radius * 0.35, 0); ctx.lineTo(-radius * 0.1, 0);
+            ctx.moveTo(radius * 0.1, 0); ctx.lineTo(radius * 0.35, 0);
+            ctx.moveTo(0, -radius * 0.35); ctx.lineTo(0, -radius * 0.1);
+            ctx.moveTo(0, radius * 0.1); ctx.lineTo(0, radius * 0.35);
+            ctx.stroke();
+
+            if (filled) {
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
+                ctx.fill();
             }
             ctx.restore();
         }
 
-        function drawMode1() {
-            ctx.fillStyle = 'rgba(50, 50, 50, 0.8)';
-            ctx.strokeStyle = 'white';
-            ctx.lineWidth = 2;
-            ctx.fillRect(mode1Objects.magZone.x, mode1Objects.magZone.y, mode1Objects.magZone.w, mode1Objects.magZone.h);
-            ctx.strokeRect(mode1Objects.magZone.x, mode1Objects.magZone.y, mode1Objects.magZone.w, mode1Objects.magZone.h);
-            
-            ctx.fillStyle = 'white';
-            ctx.font = '24px Teko';
-            ctx.textAlign = 'center';
-            ctx.fillText(`MAGAZINE: ${weapon.ammo}/10`, mode1Objects.magZone.x + mode1Objects.magZone.w/2, mode1Objects.magZone.y + mode1Objects.magZone.h/2);
+        function drawCursor() {
+            if (cursor.x < 0) return;
 
-            for(let b of mode1Objects.bullets) {
-                ctx.fillStyle = '#fbbf24';
+            if (currentMode === 'MODE3') {
+                let color = '#6c7d84';
+                if (weapon.isChambered) color = cursor.isPinching ? '#ff4444' : '#4dd8e6';
+                let radius = 24 + mode3Objects.recoilOffset;
+                drawReticle(cursor.x, cursor.y, radius, color, cursor.isPinching, reticleAngle);
+            } else {
+                let color = '#4dd8e6';
+                if (cursor.isPinching || draggedObject) color = '#ffb020';
+                drawReticle(cursor.x, cursor.y, 18, color, cursor.isPinching, reticleAngle);
+            }
+        }
+
+        function drawMode1() {
+            let z = mode1Objects.magZone;
+            ctx.save();
+            let panelGrad = ctx.createLinearGradient(z.x, z.y, z.x, z.y + z.h);
+            panelGrad.addColorStop(0, 'rgba(28,38,43,0.85)');
+            panelGrad.addColorStop(1, 'rgba(10,14,16,0.9)');
+            ctx.fillStyle = panelGrad;
+            ctx.strokeStyle = '#4dd8e6';
+            ctx.lineWidth = 1.5;
+            ctx.fillRect(z.x, z.y, z.w, z.h);
+            ctx.strokeRect(z.x, z.y, z.w, z.h);
+
+            ctx.fillStyle = '#eef4f5';
+            ctx.font = '20px "JetBrains Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(`MAG ${weapon.ammo}/10`, z.x + z.w / 2, z.y + z.h / 2);
+            ctx.restore();
+
+            for (let b of mode1Objects.bullets) {
+                ctx.save();
+                let g = ctx.createLinearGradient(b.x, b.y, b.x + b.w, b.y);
+                g.addColorStop(0, '#a8710f');
+                g.addColorStop(0.45, '#ffcf6b');
+                g.addColorStop(1, '#c98a1a');
+                ctx.fillStyle = g;
+                ctx.strokeStyle = 'rgba(0,0,0,0.4)';
                 ctx.beginPath();
                 ctx.rect(b.x, b.y + 10, b.w, b.h - 10);
                 ctx.moveTo(b.x, b.y + 10);
-                ctx.lineTo(b.x + b.w/2, b.y);
+                ctx.lineTo(b.x + b.w / 2, b.y);
                 ctx.lineTo(b.x + b.w, b.y + 10);
                 ctx.fill();
                 ctx.stroke();
+                if (b.isGrabbed) {
+                    ctx.strokeStyle = '#4dd8e6';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(b.x - 4, b.y - 4, b.w + 8, b.h + 8);
+                }
+                ctx.restore();
             }
+        }
+
+        function metalGrad(x0, y0, x1, y1) {
+            let g = ctx.createLinearGradient(x0, y0, x1, y1);
+            g.addColorStop(0, '#4a565d');
+            g.addColorStop(0.5, '#1c262b');
+            g.addColorStop(1, '#0d1215');
+            return g;
         }
 
         function drawMode2() {
-            ctx.fillStyle = '#262626';
             let g = mode2Objects.gun;
+            ctx.save();
+            ctx.fillStyle = metalGrad(g.x, g.y, g.x, g.y + 60);
             ctx.fillRect(g.x, g.y, g.w, 60);
+            ctx.fillStyle = metalGrad(g.x + 120, g.y + 60, g.x + 120, g.y + 210);
             ctx.fillRect(g.x + 120, g.y + 60, 100, 150);
-            
+            ctx.strokeStyle = 'rgba(77,216,230,0.25)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(g.x, g.y, g.w, 60);
+            ctx.restore();
+
             let m = mode2Objects.mag;
-            ctx.fillStyle = '#404040';
+            ctx.save();
+            ctx.fillStyle = metalGrad(m.x, m.y, m.x, m.y + m.h);
             ctx.fillRect(m.x, m.y, m.w, m.h);
-            if(!m.isInserted) {
-                ctx.fillStyle = '#fbbf24';
-                for(let i=0; i<weapon.ammo; i++) {
-                    ctx.fillRect(m.x + 10, m.y + 10 + (i*15), m.w - 20, 10);
+            ctx.strokeStyle = m.isInserted ? '#4dd8e6' : 'rgba(255,255,255,0.15)';
+            ctx.lineWidth = m.isInserted ? 2 : 1;
+            ctx.strokeRect(m.x, m.y, m.w, m.h);
+            if (!m.isInserted) {
+                ctx.fillStyle = '#ffb020';
+                for (let i = 0; i < weapon.ammo; i++) {
+                    ctx.fillRect(m.x + 10, m.y + 10 + (i * 15), m.w - 20, 9);
                 }
             }
+            ctx.restore();
 
             let s = mode2Objects.slide;
-            ctx.fillStyle = s.x < s.baseX - 50 ? '#525252' : '#737373';
+            let pulled = s.baseX - s.x > 50;
+            ctx.save();
+            ctx.fillStyle = metalGrad(s.x, s.y, s.x, s.y + s.h);
             ctx.fillRect(s.x, s.y, s.w, s.h);
-            ctx.strokeStyle = '#171717';
-            for(let i=0; i<5; i++) {
-                ctx.strokeRect(s.x + s.w - 40 - (i*15), s.y + 10, 5, 40);
+            ctx.strokeStyle = pulled ? '#4dd8e6' : 'rgba(255,255,255,0.15)';
+            ctx.lineWidth = pulled ? 2 : 1;
+            ctx.strokeRect(s.x, s.y, s.w, s.h);
+            ctx.strokeStyle = '#0a0d0e';
+            for (let i = 0; i < 5; i++) {
+                ctx.strokeRect(s.x + s.w - 40 - (i * 15), s.y + 10, 5, 40);
             }
+            ctx.restore();
+        }
+
+        function drawFloorGrid() {
+            ctx.save();
+            let horizon = ch * 0.4;
+            for (let i = 1; i <= 9; i++) {
+                let t = i / 9;
+                let y = horizon + (ch - horizon) * (t * t);
+                ctx.strokeStyle = `rgba(77,216,230,${0.16 * (1 - t) + 0.03})`;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(0, y); ctx.lineTo(cw, y);
+                ctx.stroke();
+            }
+            let vanishX = cw / 2;
+            for (let i = -6; i <= 6; i++) {
+                let xBottom = cw / 2 + i * (cw / 11);
+                ctx.strokeStyle = 'rgba(77,216,230,0.08)';
+                ctx.beginPath();
+                ctx.moveTo(vanishX, horizon);
+                ctx.lineTo(xBottom, ch);
+                ctx.stroke();
+            }
+            ctx.restore();
         }
 
         function drawMode3() {
-            // Ambient vignette for a first-person shooting-range feel
-            let grad = ctx.createRadialGradient(cw/2, ch/2, ch*0.2, cw/2, ch/2, ch*0.75);
+            ctx.fillStyle = 'rgba(8,11,13,0.28)';
+            ctx.fillRect(0, 0, cw, ch);
+
+            drawFloorGrid();
+
+            let grad = ctx.createRadialGradient(cw / 2, ch / 2, ch * 0.2, cw / 2, ch / 2, ch * 0.78);
             grad.addColorStop(0, 'rgba(0,0,0,0)');
-            grad.addColorStop(1, 'rgba(0,0,0,0.55)');
+            grad.addColorStop(1, 'rgba(0,0,0,0.6)');
             ctx.fillStyle = grad;
             ctx.fillRect(0, 0, cw, ch);
 
-            // Targets with shaded rings + slight wobble
             for (let t of mode3Objects.targets) {
                 ctx.save();
                 let wob = Math.sin((t.life * 0.08) + t.wobble) * 3;
                 ctx.translate(t.x + wob, t.y);
                 ctx.globalAlpha = Math.min(1, t.life / 20);
 
-                let rGrad = ctx.createRadialGradient(-t.r*0.3, -t.r*0.3, t.r*0.1, 0, 0, t.r);
+                ctx.strokeStyle = 'rgba(77,216,230,0.5)';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.arc(0, 0, t.r + 8, 0, Math.PI * 2);
+                ctx.stroke();
+                for (let i = 0; i < 12; i++) {
+                    let a = (i / 12) * Math.PI * 2 + reticleAngle * 0.5;
+                    ctx.beginPath();
+                    ctx.moveTo(Math.cos(a) * (t.r + 8), Math.sin(a) * (t.r + 8));
+                    ctx.lineTo(Math.cos(a) * (t.r + 13), Math.sin(a) * (t.r + 13));
+                    ctx.stroke();
+                }
+
+                let rGrad = ctx.createRadialGradient(-t.r * 0.3, -t.r * 0.3, t.r * 0.1, 0, 0, t.r);
                 rGrad.addColorStop(0, '#ff7b7b');
                 rGrad.addColorStop(0.55, '#dc2626');
                 rGrad.addColorStop(1, '#7f1d1d');
-                ctx.beginPath(); ctx.arc(0, 0, t.r, 0, Math.PI*2); ctx.fillStyle = rGrad; ctx.fill();
-                ctx.beginPath(); ctx.arc(0, 0, t.r*0.65, 0, Math.PI*2); ctx.fillStyle = '#f4f4f5'; ctx.fill();
-                ctx.beginPath(); ctx.arc(0, 0, t.r*0.35, 0, Math.PI*2); ctx.fillStyle = '#dc2626'; ctx.fill();
-                ctx.beginPath(); ctx.arc(0, 0, t.r*0.12, 0, Math.PI*2); ctx.fillStyle = '#facc15'; ctx.fill();
+                ctx.beginPath(); ctx.arc(0, 0, t.r, 0, Math.PI * 2); ctx.fillStyle = rGrad; ctx.fill();
+                ctx.beginPath(); ctx.arc(0, 0, t.r * 0.65, 0, Math.PI * 2); ctx.fillStyle = '#f4f4f5'; ctx.fill();
+                ctx.beginPath(); ctx.arc(0, 0, t.r * 0.35, 0, Math.PI * 2); ctx.fillStyle = '#dc2626'; ctx.fill();
+                ctx.beginPath(); ctx.arc(0, 0, t.r * 0.12, 0, Math.PI * 2); ctx.fillStyle = '#ffb020'; ctx.fill();
                 ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 2; ctx.stroke();
                 ctx.restore();
             }
 
-            // Hit particles
             for (let p of particles) {
                 ctx.save();
                 ctx.globalAlpha = Math.max(0, p.life / 30);
                 ctx.fillStyle = p.color;
-                ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill();
                 ctx.restore();
             }
 
-            // Score popups
             ctx.textAlign = 'center';
             for (let s of popups) {
                 ctx.save();
                 ctx.globalAlpha = Math.max(0, s.life / 45);
-                ctx.fillStyle = '#facc15';
-                ctx.font = 'bold 28px Teko';
+                ctx.fillStyle = '#ffb020';
+                ctx.font = 'bold 26px "JetBrains Mono", monospace';
                 ctx.fillText(s.text, s.x, s.y);
                 ctx.restore();
             }
 
             drawGunFPS();
 
-            if(mode3Objects.flashOpacity > 0) {
-                ctx.fillStyle = `rgba(255, 255, 100, ${mode3Objects.flashOpacity * 0.25})`;
+            if (mode3Objects.flashOpacity > 0) {
+                ctx.fillStyle = `rgba(255, 220, 150, ${mode3Objects.flashOpacity * 0.22})`;
                 ctx.fillRect(0, 0, cw, ch);
             }
         }
 
-        // First-person gun model, anchored bottom-center, follows hand sway + recoils on shot
         function drawGunFPS() {
             ctx.save();
             let scaleFactor = Math.min(cw, ch) / 900;
-            let baseX = cw/2 + gunFPS.swayX;
+            let baseX = cw / 2 + gunFPS.swayX;
             let baseY = ch + 30 * scaleFactor + gunFPS.swayY - gunFPS.kick;
 
             ctx.translate(baseX, baseY);
             ctx.scale(scaleFactor, scaleFactor);
             ctx.rotate(gunFPS.swayX * 0.0008);
 
-            // Barrel / slide
-            ctx.fillStyle = '#1c1c1c';
-            ctx.fillRect(-48, -230 + gunFPS.kick*0.5, 96, 190);
-            ctx.fillStyle = 'rgba(255,255,255,0.07)';
-            ctx.fillRect(-48, -230 + gunFPS.kick*0.5, 16, 190);
+            let barrelGrad = ctx.createLinearGradient(-48, 0, 48, 0);
+            barrelGrad.addColorStop(0, '#0c1114');
+            barrelGrad.addColorStop(0.18, '#3a464c');
+            barrelGrad.addColorStop(0.5, '#161d21');
+            barrelGrad.addColorStop(1, '#050708');
+            ctx.fillStyle = barrelGrad;
+            ctx.fillRect(-48, -230 + gunFPS.kick * 0.5, 96, 190);
+            ctx.strokeStyle = 'rgba(77,216,230,0.4)';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(-48, -230 + gunFPS.kick * 0.5, 96, 190);
 
-            // Front sight
-            ctx.fillStyle = '#ef4444';
-            ctx.fillRect(-6, -246 + gunFPS.kick*0.5, 12, 16);
+            ctx.fillStyle = '#1c262b';
+            ctx.fillRect(-6, -248 + gunFPS.kick * 0.5, 12, 18);
+            ctx.fillStyle = '#ffb020';
+            ctx.beginPath();
+            ctx.arc(0, -240 + gunFPS.kick * 0.5, 3, 0, Math.PI * 2);
+            ctx.fill();
 
-            // Trigger guard / grip
-            ctx.fillStyle = '#171717';
+            let gripGrad = ctx.createLinearGradient(-58, 0, 58, 0);
+            gripGrad.addColorStop(0, '#050708');
+            gripGrad.addColorStop(0.5, '#20292e');
+            gripGrad.addColorStop(1, '#050708');
+            ctx.fillStyle = gripGrad;
             ctx.beginPath();
             ctx.moveTo(-38, -55);
             ctx.lineTo(38, -55);
@@ -760,15 +1081,26 @@
             ctx.lineTo(-58, 70);
             ctx.closePath();
             ctx.fill();
-            ctx.fillStyle = 'rgba(255,255,255,0.05)';
-            ctx.fillRect(-38, -55, 14, 125);
+            ctx.strokeStyle = 'rgba(77,216,230,0.2)';
+            ctx.stroke();
 
-            // Muzzle flash burst at barrel tip
+            ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+            for (let i = 0; i < 5; i++) {
+                ctx.beginPath();
+                ctx.moveTo(20 + i * 5, -70);
+                ctx.lineTo(20 + i * 5, -40);
+                ctx.stroke();
+            }
+
             if (mode3Objects.flashOpacity > 0) {
                 ctx.save();
                 ctx.globalAlpha = mode3Objects.flashOpacity;
-                ctx.translate(0, -230 + gunFPS.kick*0.5);
-                ctx.fillStyle = '#fef08a';
+                ctx.translate(0, -230 + gunFPS.kick * 0.5);
+                let flashGrad = ctx.createRadialGradient(0, -10, 2, 0, -10, 44);
+                flashGrad.addColorStop(0, '#fff7d6');
+                flashGrad.addColorStop(0.5, '#ffcf6b');
+                flashGrad.addColorStop(1, 'rgba(255,176,32,0)');
+                ctx.fillStyle = flashGrad;
                 ctx.beginPath();
                 for (let i = 0; i < 8; i++) {
                     let ang = (i / 8) * Math.PI * 2;
@@ -785,6 +1117,7 @@
 
         function drawLoop() {
             ctx.clearRect(0, 0, cw, ch);
+            reticleAngle += 0.012;
 
             if (currentMode === 'MODE1') drawMode1();
             if (currentMode === 'MODE2') drawMode2();
@@ -792,13 +1125,13 @@
 
             if (handTrackingData && currentMode !== 'MENU') {
                 ctx.save();
-                ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)';
-                ctx.lineWidth = 2;
-                ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
-                for(let lm of handTrackingData) {
+                ctx.strokeStyle = 'rgba(77, 216, 230, 0.35)';
+                ctx.lineWidth = 1.5;
+                ctx.fillStyle = 'rgba(77, 216, 230, 0.55)';
+                for (let lm of handTrackingData) {
                     let lx = (1 - lm.x) * cw;
                     let ly = lm.y * ch;
-                    ctx.beginPath(); ctx.arc(lx, ly, 3, 0, Math.PI*2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(lx, ly, 2.5, 0, Math.PI * 2); ctx.fill();
                 }
                 ctx.restore();
             }
@@ -808,7 +1141,6 @@
         }
 
         requestAnimationFrame(drawLoop);
-
     </script>
 </body>
 </html>
